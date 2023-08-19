@@ -1,3 +1,0 @@
-uat
-uat env line 2
-uat env line 3
