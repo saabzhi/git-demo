@@ -1,2 +1,7 @@
 中国现代化支付系统（CNAPS）
 第二代支付系统（CNAPS2）
+select usesealcnt from gss_usesealbizinfo where requestid='26232';
+select count(1) from gss_usesealloginfo where bizid = (select AUTOID from gss_usesealbizinfo where requestid='26232');
+
+select usesealcnt from gss_usesealbizinfo where requestid='26233';
+select count(1) from gss_usesealloginfo where bizid = (select AUTOID from gss_usesealbizinfo where requestid='26233');
