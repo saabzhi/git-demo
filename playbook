@@ -1,0 +1,151 @@
+    - name: 获取Nginx服务状态
+      ansible.builtin.systemd:
+        name: nginx
+        state: started
+      register: service_status
+      failed_when: false
+
+    - name: 输出Nginx服务状态
+      ansible.builtin.debug:
+        var: service_status.status.ActiveState
+
+    - name: 判断Nginx服务是否启动
+      ansible.builtin.assert:
+        that:
+          - service_status.status.ActiveState == "active"
+        msg: "Nginx服务未启动，将尝试启动"
+      ignore_errors: true
+      register: service_assertion
+
+    - name: 启动Nginx服务
+      ansible.builtin.systemd:
+        name: nginx
+        state: started
+        enabled: true
+      when: service_assertion is failed
+
+    - name: 再次检查Nginx服务状态
+      ansible.builtin.systemd:
+        name: nginx
+      register: service_status_after_start
+      failed_when: false
+
+    - name: 输出启动后Nginx服务状态
+      ansible.builtin.debug:
+        var: service_status_after_start.status.ActiveState
+
+    - name: 确认Nginx服务已启动
+      ansible.builtin.assert:
+        that:
+          - service_status_after_start.status.ActiveState == "active"
+        msg: "Nginx服务启动失败"
+
+=============================================================
+---
+- name: when start nginx
+  hosts: worker
+  tasks:
+    - name: install nginx
+      yum:
+        name: nginx
+        state: present
+
+    - name: 获取nginx服务状态
+      ansible.builtin.shell:
+        cmd: 'ps -ef | grep "master process"|grep -v grep | wc -l'
+      ignore_errors: true
+      register: service_stop_status
+
+    - name: 停止nginx 服务
+      systemd:
+        name: nginx
+        state: stopped
+      when: service_stop_status.stdout | int == 1
+
+    - name: 启动nginx 服务
+      systemd:
+        name: nginx
+        state: started
+
+    - name: 获取nginx服务状态
+      ansible.builtin.shell:
+        cmd: 'ps -ef | grep "master process"|grep -v grep | wc -l'
+      ignore_errors: true
+      register: service_start_status
+
+    - name: 输出nginx状态
+      ansible.builtin.debug:
+        msg: "running"
+      when: service_start_status.stdout | int == 1
+
+===============================================================
+---
+- name: when start nginx
+  hosts: worker
+  tasks:
+    - name: install nginx
+      yum:
+        name: nginx
+        state: present
+
+    - name: 获取nginx服务状态
+      ansible.builtin.shell:
+        cmd: 'ps -ef | grep "master process"|grep -v grep | wc -l'
+      ignore_errors: true
+      register: service_stop_status
+
+    - name: 停止nginx 服务
+      systemd:
+        name: nginx
+        state: stopped
+      when: service_stop_status.stdout | int == 1
+
+    # 添加备份JAR包的任务
+    - name: 创建备份目录
+      file:
+        path: /opt/app/backup/{{ ansible_date_time.date }}
+        state: directory
+        mode: '0755'
+      when: service_stop_status.stdout | int == 1
+
+    - name: 备份当前JAR包
+      copy:
+        src: /opt/app/application.jar
+        dest: /opt/app/backup/{{ ansible_date_time.date }}/application_{{ ansible_date_time.hour }}{{ ansible_date_time.minute }}{{ ansible_date_time.second }}.jar
+        remote_src: true
+        mode: preserve
+      when: service_stop_status.stdout | int == 1
+      ignore_errors: true
+
+    # 添加删除上一个旧版本的任务
+    - name: 获取上一个备份目录列表
+      find:
+        paths: /opt/app/backup
+        file_type: directory
+        recurse: false
+        age: +1d  # 超过1天的目录
+      register: old_backup_dirs
+      when: service_stop_status.stdout | int == 1
+
+    - name: 删除上一个旧版本备份目录
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_backup_dirs.files }}"
+      when: service_stop_status.stdout | int == 1 and old_backup_dirs.matched > 0
+
+    - name: 启动nginx 服务
+      systemd:
+        name: nginx
+        state: started
+
+    - name: 获取nginx服务状态
+      ansible.builtin.shell:
+        cmd: 'ps -ef | grep "master process"|grep -v grep | wc -l'
+      ignore_errors: true
+      register: service_start_status
+
+    - name: 输出nginx状态
+      ansible.builtin.debug:
+        msg: "running"
+      when: service_start_status.stdout | int == 1
