@@ -1,0 +1,27 @@
+#!/bin/bash
+
+# 应用名称（可修改为实际进程名或关键词）
+APP_NAME="myapp"
+
+# 检查进程是否存在
+check_process() {
+    # 使用ps和grep查找进程，排除grep自身
+    process_count=$(ps -ef | grep -v grep | grep -c "$APP_NAME")
+    if [ $process_count -gt 0 ]; then
+        return 0  # 进程存在
+    else
+        return 1  # 进程不存在
+    fi
+}
+
+# 主逻辑
+echo "===== 应用进程检查结果 ====="
+if check_process; then
+    echo "应用[$APP_NAME]已正常启动"
+    echo "当前进程数: $(ps -ef | grep -v grep | grep -c "$APP_NAME")"
+    echo "进程详情:"
+    ps -ef | grep -v grep | grep "$APP_NAME" | awk '{print "PID:", $2, " 启动时间:", $5, " 命令:", $8}'
+else
+    echo "应用[$APP_NAME]未启动"
+fi
+echo "==========================="
