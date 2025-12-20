@@ -24,7 +24,8 @@ body { font-family: Arial, Helvetica, sans-serif; font-size:14px; padding:10px; 
 h1,h2 { font-weight:600; }
 .sheet-summary { margin-bottom: 18px; }
 table.diff { border-collapse: collapse; margin-bottom: 24px; width:100%; table-layout:fixed; }
-table.diff th, table.diff td { border:1px solid #ddd; padding:6px; vertical-align:top; word-wrap:break-word; overflow-wrap:break-word; max-width:240px; }
+table.diff { border-collapse: collapse; margin-bottom: 24px; width:auto; table-layout:auto; }
+table.diff th, table.diff td { border:1px solid #ddd; padding:6px; vertical-align:top; word-wrap:break-word; overflow-wrap:break-word; }
 table.diff th { background:#f6f6f6; text-align:left; }
 .same { background: white; }
 .changed { background: #fff3b0; }      /* yellow */
@@ -36,6 +37,7 @@ table.diff th { background:#f6f6f6; text-align:left; }
 .summary-table td, .summary-table th { padding:6px 10px; border:1px solid #ddd; }
 .small { font-size:13px; color:#444; }
 .filename { font-weight:700; }
+.table-container { overflow:auto; }
 </style>
 """
 
@@ -105,8 +107,8 @@ def render_sheet_html(sheet_name, fname1, fname2, cols, cells, stats):
         return "\n".join(html_parts)
 
     # Build diff table: for each column, show two subcolumns (file1, file2)
-    # Header row
-    html_parts.append("<table class='diff'>")
+    # Header row (wrapped so very wide tables can scroll)
+    html_parts.append("<div class='table-container'><table class='diff'>")
     # Header: row number + for each col: col name spanning two columns
     html_parts.append("<thead><tr><th style='width:60px'>Row</th>")
     for c in cols:
@@ -136,7 +138,7 @@ def render_sheet_html(sheet_name, fname1, fname2, cols, cells, stats):
             html_parts.append(f"<td class='{cls1}'>{to_display(a)}</td>")
             html_parts.append(f"<td class='{cls2}'>{to_display(b)}</td>")
         html_parts.append("</tr>")
-    html_parts.append("</tbody></table>")
+    html_parts.append("</tbody></table></div>")
     return "\n".join(html_parts)
 
 def build_report(fname1, fname2, sheet=None, out="diff_report.html"):
