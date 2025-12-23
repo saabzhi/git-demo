@@ -1,21 +1,21 @@
-import argparse
-import html
-import os
-from collections import OrderedDict
-import pandas as pd
-import numpy as np
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Excel 比较并生成 HTML 报告
 
 用法:
-    python excel_diff.py file1.xlsx file2.xlsx [--sheet SHEET] [--out report.html]
+    python excel_diff.py file1.xlsx file2.xlsx [--sheet SHEET] [--out report.html] [--rows 100]
 
 如果不指定 --sheet 则比较两个工作簿中的所有工作表（按名称匹配）。
 """
 
+import argparse
+import html
+import os
+from collections import OrderedDict
+import pandas as pd
+import numpy as np
+import datetime
 
 
 CSS = """
@@ -23,9 +23,10 @@ CSS = """
 body { font-family: Arial, Helvetica, sans-serif; font-size:14px; padding:10px; }
 h1,h2 { font-weight:600; }
 .sheet-summary { margin-bottom: 18px; }
-table.diff { border-collapse: collapse; margin-bottom: 24px; width:100%; table-layout:fixed; }
-table.diff { border-collapse: collapse; margin-bottom: 24px; width:auto; table-layout:auto; }
-table.diff th, table.diff td { border:1px solid #ddd; padding:6px; vertical-align:top; word-wrap:break-word; overflow-wrap:break-word; }
+.table-container { height: 600px; overflow: auto; overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+/* Make table use its content width so the container can scroll when needed */
+table.diff { border-collapse: collapse; margin-bottom: 24px; table-layout: auto; white-space: nowrap; width: max-content; }
+table.diff th, table.diff td { border:1px solid #ddd; padding:6px; vertical-align:top; word-wrap:normal; overflow-wrap:normal; }
 table.diff th { background:#f6f6f6; text-align:left; }
 .same { background: white; }
 .changed { background: #fff3b0; }      /* yellow */
@@ -37,7 +38,6 @@ table.diff th { background:#f6f6f6; text-align:left; }
 .summary-table td, .summary-table th { padding:6px 10px; border:1px solid #ddd; }
 .small { font-size:13px; color:#444; }
 .filename { font-weight:700; }
-.table-container { overflow:auto; }
 </style>
 """
 
@@ -61,14 +61,11 @@ def to_display(val):
 
 def compare_dataframes(df1, df2):
     # Align indexes and columns by header labels; compare by row number if both default RangeIndex
-    # We'll use integer row numbers as index for display, but keep column labels union
-    # Reset index to ensure row order preserved
     df1 = df1.reset_index(drop=True)
     df2 = df2.reset_index(drop=True)
     max_rows = max(len(df1), len(df2))
     cols = list(OrderedDict.fromkeys(list(df1.columns) + list(df2.columns)))
     stats = {"same": 0, "changed": 0, "added": 0, "removed": 0}
-    # Build matrix of cells with classification and values
     cells = []
     for r in range(max_rows):
         row = []
@@ -92,24 +89,32 @@ def compare_dataframes(df1, df2):
         cells.append(row)
     return cols, cells, stats
 
-def render_sheet_html(sheet_name, fname1, fname2, cols, cells, stats):
+def render_sheet_html(sheet_name, fname1, fname2, cols, cells, stats, sheet_id=0, page_size=None):
     title = f"Sheet: {html.escape(str(sheet_name))}"
     html_parts = []
     html_parts.append(f"<h2>{title}</h2>")
     html_parts.append(f"<div class='meta'><span class='filename'>{html.escape(fname1)}</span> vs <span class='filename'>{html.escape(fname2)}</span></div>")
-    html_parts.append("<table class='summary-table'><tr><th>Same</th><th>Changed</th><th>Added</th><th>Removed</th></tr>")
+    html_parts.append("<table class='summary-table'><tr><th>一致表格值</th><th>不一致表格值</th><th>第二文件存在，第一文件不存在</th><th>第一文件存在，第二文件不存在</th></tr>")
     html_parts.append(f"<tr><td class='small'>{stats['same']}</td><td class='small'>{stats['changed']}</td><td class='small'>{stats['added']}</td><td class='small'>{stats['removed']}</td></tr></table>")
     # Only include rows that have at least one differing cell.
-    # Keep original row numbers by enumerating `cells` and collecting pairs (orig_index, row).
     diff_rows = [(i, row) for i, row in enumerate(cells) if any(cls != 'same' for (_, cls, _, _) in row)]
-    if not diff_rows:
+    total_diff_rows = len(diff_rows)
+    if total_diff_rows == 0:
         html_parts.append("<p class='small'>No differences found.</p>")
         return "\n".join(html_parts)
 
-    # Build diff table: for each column, show two subcolumns (file1, file2)
-    # Header row (wrapped so very wide tables can scroll)
-    html_parts.append("<div class='table-container'><table class='diff'>")
-    # Header: row number + for each col: col name spanning two columns
+    # Build pager controls and diff table
+    # page_size: initial rows per page (from CLI), default to 10
+    if page_size is None:
+        page_size = 10
+
+    html_parts.append(f"<div class='meta small'>Showing {min(page_size, total_diff_rows)} rows per page — {total_diff_rows} differing rows total</div>")
+    html_parts.append("<div class='meta small'>")
+    html_parts.append(f"Rows per page: <select id='rows_per_page_{sheet_id}' class='rows-per-page-select'><option value=10>10</option><option value=50>50</option><option value=100>100</option><option value=500>500</option></select>")
+    html_parts.append(f" <button id='prev_{sheet_id}'>Prev</button> <span id='page_info_{sheet_id}'></span> <button id='next_{sheet_id}'>Next</button>")
+    html_parts.append("</div>")
+
+    html_parts.append(f"<div class='table-container'><table class='diff diff-table' data-sheet-id='{sheet_id}' data-page-size='{page_size}'>")
     html_parts.append("<thead><tr><th style='width:60px'>Row</th>")
     for c in cols:
         html_parts.append(f"<th colspan='2'>{html.escape(str(c))}</th>")
@@ -117,32 +122,38 @@ def render_sheet_html(sheet_name, fname1, fname2, cols, cells, stats):
     for c in cols:
         html_parts.append(f"<th class='small'>{html.escape(os.path.basename(fname1))}</th><th class='small'>{html.escape(os.path.basename(fname2))}</th>")
     html_parts.append("</tr></thead><tbody>")
-    # Rows (only rows with differences)
     for i, row in diff_rows:
         html_parts.append("<tr>")
-        # show original 1-based row number
         html_parts.append(f"<td class='small'>{i+1}</td>")
         for (col, cls, a, b) in row:
-            # For same, both cells plain; for changed, highlight both; for added/removed, highlight respective one
-            cls1 = cls2 = "same"
-            if cls == "same":
-                cls1 = cls2 = "same"
-            elif cls == "changed":
-                cls1 = cls2 = "changed"
-            elif cls == "added":
-                cls1 = "same"
-                cls2 = "added"
-            elif cls == "removed":
-                cls1 = "removed"
-                cls2 = "same"
+            cls1 = cls2 = 'same'
+            if cls == 'same':
+                cls1 = cls2 = 'same'
+            elif cls == 'changed':
+                cls1 = cls2 = 'changed'
+            elif cls == 'added':
+                cls1 = 'same'
+                cls2 = 'added'
+            elif cls == 'removed':
+                cls1 = 'removed'
+                cls2 = 'same'
             html_parts.append(f"<td class='{cls1}'>{to_display(a)}</td>")
             html_parts.append(f"<td class='{cls2}'>{to_display(b)}</td>")
         html_parts.append("</tr>")
     html_parts.append("</tbody></table></div>")
     return "\n".join(html_parts)
 
-def build_report(fname1, fname2, sheet=None, out="diff_report.html"):
-    # Read workbooks
+def append_timestamp_to_filename(path):
+    base, ext = os.path.splitext(path)
+    if not ext:
+        ext = '.html'
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{base}_{ts}{ext}"
+
+def build_report(fname1, fname2, sheet=None, out="diff_report.html", rows=None):
+    # ensure output filename contains timestamp
+    out = append_timestamp_to_filename(out)
+
     x1 = pd.ExcelFile(fname1)
     x2 = pd.ExcelFile(fname2)
     sheets1 = x1.sheet_names
@@ -151,16 +162,14 @@ def build_report(fname1, fname2, sheet=None, out="diff_report.html"):
     if sheet:
         target_sheets = [sheet]
     else:
-        # union of sheet names, preserve order: sheets1 then those in sheets2 not in sheets1
         target_sheets = list(OrderedDict.fromkeys(list(sheets1) + [s for s in sheets2 if s not in sheets1]))
 
     body = []
     overall = {"same":0,"changed":0,"added":0,"removed":0, "diff_rows": 0}
-    for s in target_sheets:
+    for sheet_idx, s in enumerate(target_sheets):
         exists1 = s in sheets1
         exists2 = s in sheets2
         if not exists1:
-            # sheet added in second workbook: render simple table showing entire sheet as 'added'
             df2 = x2.parse(s, header=0)
             cols = list(df2.columns)
             cells = []
@@ -170,10 +179,9 @@ def build_report(fname1, fname2, sheet=None, out="diff_report.html"):
                     row.append((c, "added", np.nan, df2.at[r,c]))
                     overall["added"] += 1
                 cells.append(row)
-            # whole sheet counts as differing rows equal to number of rows in sheet
             overall["diff_rows"] += len(df2)
             stats = {"same":0,"changed":0,"added":len(df2)*len(cols),"removed":0}
-            body.append(render_sheet_html(s, fname1, fname2, cols, cells, stats))
+            body.append(render_sheet_html(s, fname1, fname2, cols, cells, stats, sheet_id=sheet_idx, page_size=rows))
             continue
         if not exists2:
             df1 = x1.parse(s, header=0)
@@ -185,30 +193,53 @@ def build_report(fname1, fname2, sheet=None, out="diff_report.html"):
                     row.append((c, "removed", df1.at[r,c], np.nan))
                     overall["removed"] += 1
                 cells.append(row)
-            # whole sheet counts as differing rows equal to number of rows in sheet
             overall["diff_rows"] += len(df1)
-            body.append(render_sheet_html(s, fname1, fname2, cols, cells, {"same":0,"changed":0,"added":0,"removed":len(df1)*len(cols)}))
+            body.append(render_sheet_html(s, fname1, fname2, cols, cells, {"same":0,"changed":0,"added":0,"removed":len(df1)*len(cols)}, sheet_id=sheet_idx, page_size=rows))
             continue
         df1 = x1.parse(s, header=0)
         df2 = x2.parse(s, header=0)
         cols, cells, stats = compare_dataframes(df1, df2)
         for k in ("same","changed","added","removed"):
             overall[k] += stats[k]
-        # count rows that contain any differing cell
         sheet_diff_rows = sum(1 for row in cells if any(cls != 'same' for (_, cls, _, _) in row))
         overall["diff_rows"] += sheet_diff_rows
-        body.append(render_sheet_html(s, fname1, fname2, cols, cells, stats))
+        body.append(render_sheet_html(s, fname1, fname2, cols, cells, stats, sheet_id=sheet_idx, page_size=rows))
 
-    # compose final HTML
     html_doc = ["<html><head><meta charset='utf-8'><title>Excel Diff Report</title>", CSS, "</head><body>"]
     html_doc.append(f"<h1>Excel Diff Report</h1>")
     html_doc.append(f"<div class='meta'>Comparing <span class='filename'>{html.escape(fname1)}</span> and <span class='filename'>{html.escape(fname2)}</span></div>")
     html_doc.append("<div class='sheet-summary'>")
     html_doc.append("<strong>Overall summary</strong>")
-    html_doc.append(f"<table class='summary-table'><tr><th>Same</th><th>Changed</th><th>Added</th><th>Removed</th><th>Different rows</th></tr>")
+    html_doc.append(f"<table class='summary-table'><tr><th>一致表格值</th><th>不一致表格值</th><th>第二文件存在，第一文件不存在</th><th>第一文件存在，第二文件不存在</th><th>不一致行记录</th></tr>")
     html_doc.append(f"<tr><td>{overall['same']}</td><td>{overall['changed']}</td><td>{overall['added']}</td><td>{overall['removed']}</td><td>{overall['diff_rows']}</td></tr></table>")
     html_doc.append("</div>")
     html_doc.extend(body)
+    # Client-side pagination script for each sheet's diff table
+    html_doc.append("<script>")
+    html_doc.append(r"document.addEventListener('DOMContentLoaded', function(){")
+    html_doc.append(r"  function initPager(sheetId, defaultPageSize){")
+    html_doc.append("    var table = document.querySelector('table.diff-table[data-sheet-id=\"' + sheetId + '\"]');")
+    html_doc.append(r"    if(!table) return;")
+    html_doc.append(r"    var rows = table.querySelectorAll('tbody tr');")
+    html_doc.append(r"    var total = rows.length;")
+    html_doc.append(r"    var pageSize = parseInt(defaultPageSize)||10; var page = 1;")
+    html_doc.append(r"    var info = document.getElementById('page_info_'+sheetId); var prev = document.getElementById('prev_'+sheetId); var next = document.getElementById('next_'+sheetId); var sel = document.getElementById('rows_per_page_'+sheetId);")
+    html_doc.append(r"    function render(){")
+    html_doc.append(r"      var totalPages = Math.max(1, Math.ceil(total/pageSize));")
+    html_doc.append(r"      var start = (page-1)*pageSize; var end = start+pageSize;")
+    html_doc.append(r"      rows.forEach(function(r,i){ r.style.display = (i>=start && i<end)?'table-row':'none'; });")
+    html_doc.append(r"      if(info) info.textContent = page + '/' + totalPages;")
+    html_doc.append(r"      if(prev) prev.disabled = page<=1; if(next) next.disabled = page>=totalPages;")
+    html_doc.append(r"    }")
+    html_doc.append(r"    if(prev) prev.addEventListener('click', function(){ if(page>1){ page--; render(); }});")
+    html_doc.append(r"    if(next) next.addEventListener('click', function(){ var totalPages = Math.max(1, Math.ceil(total/pageSize)); if(page<totalPages){ page++; render(); }});")
+    html_doc.append(r"    if(sel){ sel.addEventListener('change', function(){ pageSize = parseInt(this.value)||10; page=1; render(); }); sel.value = pageSize; }")
+    html_doc.append(r"    render();")
+    html_doc.append(r"  }")
+    html_doc.append(r"  var tables = document.querySelectorAll('table.diff-table');")
+    html_doc.append(r"  tables.forEach(function(t){ var id = t.dataset.sheetId; var ps = t.dataset.pageSize || 10; initPager(id, ps); });")
+    html_doc.append(r"});")
+    html_doc.append("</script>")
     html_doc.append("</body></html>")
     with open(out, "w", encoding="utf-8") as f:
         f.write("\n".join(html_doc))
@@ -220,12 +251,13 @@ def main():
     parser.add_argument("file2", help="second Excel file")
     parser.add_argument("--sheet", "-s", help="specific sheet name to compare (default: all sheets)")
     parser.add_argument("--out", "-o", default="diff_report.html", help="output HTML file (default: diff_report.html)")
+    parser.add_argument("--rows", "-r", type=int, choices=[10,50,100,500], default=10, help="rows per page to display per sheet (choices: 10,50,100,500)")
     args = parser.parse_args()
     if not os.path.exists(args.file1):
         print("file1 not found:", args.file1); return
     if not os.path.exists(args.file2):
         print("file2 not found:", args.file2); return
-    build_report(args.file1, args.file2, sheet=args.sheet, out=args.out)
+    build_report(args.file1, args.file2, sheet=args.sheet, out=args.out, rows=args.rows)
 
 if __name__ == "__main__":
     main()
