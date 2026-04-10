@@ -24,3 +24,28 @@ SET (spayeename,
 WHERE EXISTS (SELECT 1
                 FROM b
                WHERE b.spk = a.spk);
+------
+SELECT
+    a.spk,
+    a.spayeename AS a_spayeename,
+    b.spayeename AS b_spayeename,
+    a.cpayeename AS a_cpayeename,
+    b.cpayeename AS b_cpayeename,
+    a.spayeeorgcode AS a_spayeeorgcode,
+    b.spayeeorgcode AS b_spayeeorgcode,
+    a.spayername AS a_spayername,
+    b.spayername AS b_spayername,
+    a.spaybankcode AS a_spaybankcode,
+    b.spaybankcode AS b_spaybankcode,
+    a.fallamt AS a_fallamt,
+    b.fallamt AS b_fallamt,
+    a.dpayeedate AS a_dpayeedate,
+    b.dpayeedate AS b_dpayeedate,
+    a.cbalancemode AS a_cbalancemode,
+    b.cbalancemode AS b_cbalancemode,
+    a.cpayeecny AS a_cpayeecny,
+    b.cpayeecny AS b_cpayeecny,
+    a.sbanktrano AS a_sbanktrano,
+    b.sbanktrano AS b_sbanktrano
+FROM a
+JOIN b ON a.spk = b.spk;
