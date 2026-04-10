@@ -49,3 +49,4 @@ SELECT
     b.sbanktrano AS b_sbanktrano
 FROM a
 JOIN b ON a.spk = b.spk;
+jjj
