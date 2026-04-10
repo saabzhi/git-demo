@@ -1,0 +1,26 @@
+UPDATE a
+SET (spayeename,
+      cpayeename,
+      spayeeorgcode,
+      spayername,
+      spaybankcode,
+      fallamt,
+      dpayeedate,
+      cbalancemode,
+      cpayeecny,
+      sbanktrano)
+    = (SELECT b.spayeename,
+              b.cpayeename,
+              b.spayeeorgcode,
+              b.spayername,
+              b.spaybankcode,
+              b.fallamt,
+              b.dpayeedate,
+              b.cbalancemode,
+              b.cpayeecny,
+              b.sbanktrano
+         FROM b
+        WHERE b.spk = a.spk)
+WHERE EXISTS (SELECT 1
+                FROM b
+               WHERE b.spk = a.spk);
