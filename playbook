@@ -197,3 +197,62 @@ def batch_convert_xls_to_xlsx_xlrd(search_dir):
 
 if __name__ == "__main__":
     batch_convert_xls_to_xlsx_xlrd(".")
+=========================================
+update to add folder
+import os
+from pathlib import Path
+from datetime import datetime
+import pandas as pd
+
+def batch_convert_xls_to_xlsx_xlrd(search_dir):
+    base_dir = Path(search_dir)
+    # 查找所有 .xls 文件
+    xls_files = [f for f in base_dir.glob("*.xls") if f.suffix == '.xls']
+    
+    if not xls_files:
+        print(f"未在目录 '{search_dir}' 下找到任何 .xls 文件。")
+        return
+
+    # 💡 新增：获取当天日期（格式为 YYYY-MM-DD），并在扫描目录下创建新文件夹
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    output_dir = base_dir / today_str
+    output_dir.mkdir(parents=True, exist_ok=True)  # 如果文件夹不存在则创建，存在则忽略
+
+    print(f"🚀 找到 {len(xls_files)} 个 .xls 文件，开始转换...")
+    print(f"📂 转换后的文件将保存至: {output_dir.resolve()}\n")
+    
+    success_count = 0
+    fail_count = 0
+
+    for xls_path in xls_files:
+        # 💡 修改：将输出路径指向新创建的日期文件夹内
+        xlsx_path = output_dir / xls_path.with_suffix('.xlsx').name
+        
+        if xlsx_path.exists():
+            print(f"⚠️ 跳过：{xlsx_path.name} 已存在于目标文件夹中。")
+            continue
+            
+        try:
+            print(f"正在转换: {xls_path.name} -> {today_str}/{xlsx_path.name}")
+            
+            # 使用 xlrd 引擎读取 xls 文件
+            with pd.ExcelFile(xls_path, engine='xlrd') as excel_file:
+                sheet_data = {sheet: excel_file.parse(sheet) for sheet in excel_file.sheet_names}
+            
+            # 写入新的 xlsx
+            with pd.ExcelWriter(xlsx_path, engine='openpyxl') as writer:
+                for sheet_name, df in sheet_data.items():
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+            
+            success_count += 1
+            
+        except Exception as e:
+            print(f"❌ 转换失败: {xls_path.name}，原因: {str(e)}")
+            fail_count += 1
+
+    print(f"\n================ 任务结束 ================")
+    print(f"成功: {success_count} 个 | 失败: {fail_count} 个")
+
+if __name__ == "__main__":
+    # "." 代表当前目录，你也可以换成绝对路径
+    batch_convert_xls_to_xlsx_xlrd(".")
