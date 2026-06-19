@@ -256,3 +256,97 @@ def batch_convert_xls_to_xlsx_xlrd(search_dir):
 if __name__ == "__main__":
     # "." 代表当前目录，你也可以换成绝对路径
     batch_convert_xls_to_xlsx_xlrd(".")
+=========================================================================
+import os
+import pandas as pd
+
+
+def merge_excel_sheets(source_dir, output_file):
+    """批量合并指定目录下所有 Excel 表的全部 Sheet 到一个新表中，保持 Sheet 名不变
+
+    :param source_dir: 存放待合并 Excel 的文件夹路径
+    :param output_file: 合并后的新 Excel 文件绝对路径
+    """
+    print("====================================================")
+    print(f"🚀 自动化合并引擎启动...")
+    print(f"📂 扫描源目标车间: {source_dir}")
+
+    # 1. 过滤并捞出目录下所有的 .xls 和 .xlsx 文件
+    excel_files = [
+        f
+        for f in os.listdir(source_dir)
+        if (f.endswith(".xlsx") or f.endswith(".xls"))
+        and not f.startswith("~$")  # 过滤掉 Excel 打开时的临时影子文件
+    ]
+
+    if not excel_files:
+        print("❌ 报错: 未在指定目录下找到任何 Excel 实体表格文件！")
+        return
+
+    print(f"📦 成功捕获待处理表格，共计: {len(excel_files)} 个")
+    print("----------------------------------------------------")
+
+    # 2. 激活 openpyxl 写入大总管
+    # 使用 ExcelWriter 可以在同一个文件里连续长出不同的 Sheet
+    with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
+        sheet_count = 0
+        existing_sheets = set()
+
+        for file_name in excel_files:
+            file_path = os.path.join(source_dir, file_name)
+            print(f"🔍 正在解构文件: {file_name} ...")
+
+            try:
+                # 💡 核心大招：sheet_name=None 代表一次性把该表里所有的 Sheet 全部捞出来
+                # 返回的是一个字典结构 -> { 'Sheet名': DataFrame数据 }
+                all_sheets_dict = pd.read_excel(file_name, sheet_name=None)
+
+                for sheet_name, df_data in all_sheets_dict.items():
+                    final_sheet_name = sheet_name
+
+                    # 🚨 铁血防御：大厂级“同名冲突”自愈机制
+                    # 如果 A 表有 userinformation，B 表也有 userinformation，新表无法存在两个同名 Sheet
+                    # 此时自动对其打标重命名为 userinformation_B表名
+                    if final_sheet_name in existing_sheets:
+                        base_name = os.path.splitext(file_name)[0]
+                        final_sheet_name = f"{sheet_name}_{base_name}"
+                        # Excel 规定 Sheet 名字最大长度不能超过 31 个字符，这里执行硬截断安全保护
+                        if len(final_sheet_name) > 31:
+                            final_sheet_name = final_sheet_name[:31]
+                        print(
+                            f"  ⚠️  检测到同名冲突，Sheet名强行重塑为: [{final_sheet_name}]"
+                        )
+
+                    # 3. 顺藤摸瓜，将数据无痕写入新表对应的 Sheet 中
+                    # index=False 代表不把每行左侧默认的 0,1,2,3 序号数字写进 Excel
+                    df_data.to_excel(
+                        writer, sheet_name=final_sheet_name, index=False
+                    )
+
+                    existing_sheets.add(final_sheet_name)
+                    sheet_count += 1
+                    print(f"  ✅ 成功闪送 Sheet: [{final_sheet_name}]")
+
+            except Exception as e:
+                print(f"  ❌ 警告: 读取文件 {file_name} 失败，错误内幕: {e}")
+
+        print("----------------------------------------------------")
+        print(f"🎉 战报：全线大获全胜！")
+        print(f"💾 制品成功落地输出至: {output_file}")
+        print(f"📊 本次共计无缝搬运 Sheet 数量: {sheet_count} 个")
+        print("====================================================")
+
+
+# ==========================================
+# 🛰️ 自动化点火控制台
+# ==========================================
+if __name__ == "__main__":
+    # [修改点 1]: 填入你存放 A表、B表、C表的实际文件夹物理路径
+    # 例如 Windows 路径写成: r"D:\excel_factory"
+    SOURCE_DIRECTORY = "./my_excel_files"
+
+    # [修改点 2]: 填入你期望生成的新 Excel 表的绝对或相对路径
+    OUTPUT_EXCEL_PATH = "./newtable.xlsx"
+
+    # 执行大合并
+    merge_excel_sheets(SOURCE_DIRECTORY, OUTPUT_EXCEL_PATH)
